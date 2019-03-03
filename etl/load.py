@@ -1,10 +1,15 @@
 import psycopg2
 from config import redshift_config
+import datetime
 
 class Load:
+    """
+    this is load class
+    this class is responsible for loading data to the fact table
+    """
 
-    conn = None
-    cur = None
+    destination_db_connection = None
+    cursor = None
 
     def connect(self):
         """ Connect to the PostgreSQL database server """
@@ -13,49 +18,46 @@ class Load:
             params = redshift_config()
 
             # connect to the PostgreSQL server
-            print('Connecting to the PostgreSQL database...')
-            self.conn = psycopg2.connect(**params)
+            print('Connecting to the redshift database...')
+            self.destination_db_connection  = psycopg2.connect(**params)
 
             # create a cursor
-            self.cur = self.conn.cursor()
+            self.cursor = self.destination_db_connection .cursor()
 
         except (Exception, psycopg2.DatabaseError) as error:
             print(error)
 
-    def insert(self, values):
-        fields = (
-        "create_date",
-        "subscription_on",
-        "transaction_on",
-        "event_time",
-        "transaction_completed_on",
-        "transaction_id",
-        "membership_no",
-        "previous_product_code",
-        "current_product_code",
-        "retailer_type",
-        "retailer_area",
-        "retailer_pos_code",
-        "subscription_status",
-        "user_type",
-        "payment_type",
-        "subscription_type",
-        "subscription_channel",
-        "transaction_channel",
-        "user_type1",
-        "parent_membership_no",
-        "relationship_with_parent",
-         "id"
-        )
-        fields = ', '.join(fields)
-        postgres_insert_query = "INSERT INTO dashboard_facttabledemo ({0}) VALUES {1}".format(fields, values)
-        print postgres_insert_query
-        self.cur.execute(postgres_insert_query)
-        self.conn.commit()
-        count = self.cur.rowcount
-        print (count, "Record inserted successfully into mobile table")
+    def insert(self, facts):
+        """
+        This method takes list of touples with field values
+        for fact table and inserts these values into the fact table
+        :param facts:
+        :return:
+        """
+        #connect to destination database
+        self.connect()
 
-        if self.conn:
-            self.cur.close()
-            self.conn.close()
-            print("PostgreSQL connection is closed")
+        count = 0
+        try:
+            print 'Loading data to the destination database...'
+            for fact in facts:
+                count = count+1
+                #execute insert query
+                self.cursor.execute('INSERT INTO  dashboard_fact (membership_no, first_free_join_date, '
+                                 'first_piad_subscription_date, last_piad_subscription_date, last_free_subscription_date, '
+                                 'number_of_renew_performed, number_of_paid_subscription, first_retailer_or_channel, '
+                                 'avg_membership_duration) VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s)',(fact))
+
+            #change to the database
+            self.destination_db_connection.commit()
+
+            print (count, "Record inserted successfully into mobile table")
+
+            if self.destination_db_connection:
+                self.cursor.close()
+                self.destination_db_connection.close()
+                print("redshift database  connection is closed")
+
+        except (Exception, psycopg2.DatabaseError) as error:
+            print(error)
+

@@ -1,108 +1,21 @@
-
+import time
 import psycopg2
-from config import db_config
-
-from petl import todb
-
-
-class Extract:
-
-    subscriptions = None
-
-    def connect(self):
-        """ Connect to the PostgreSQL database server """
-        conn = None
-        try:
-            # read connection parameters
-            params = db_config()
-
-            # connect to the PostgreSQL server
-            print('Connecting to the PostgreSQL database...')
-            conn = psycopg2.connect(**params)
-
-            # create a cursor
-            cur = conn.cursor()
-
-            # execute a statement
-            print('PostgreSQL database version:')
-            # query = "select * from subscription_data where membership_no='T-1700103545-1'"
-            query = "select * from subscription_data limit 10"
-            cur.execute(query)
-
-            # display the PostgreSQL database server version
-            self.subscriptions = cur.fetchall()
-            print cur.fetchall()
-            print self.subscriptions
-
-
-            # close the communication with the PostgreSQL
-            cur.close()
-        except (Exception, psycopg2.DatabaseError) as error:
-            print(error)
-        finally:
-            if conn is not None:
-                conn.close()
-                print('Database connection closed.')
-
-
 
 from petl import fromdb, todb, appenddb, look
 
-
-def etl():
-    fields = (
-        "create_date",
-        "subscription_on",
-        "transaction_on",
-        "event_time",
-        "transaction_completed_on",
-        "transaction_id",
-        "membership_no",
-        "previous_product_code",
-        "current_product_code",
-        "retailer_type",
-        "retailer_area",
-        "retailer_pos_code",
-        "subscription_status",
-        "user_type",
-        "payment_type",
-        "subscription_type",
-        "subscription_channel",
-        "transaction_channel",
-        "user_type1",
-        "parent_membership_no",
-        "relationship_with_parent"
-    )
-    fields = ', '.join(fields)
-    print 'establishing connection ...'
-    fromconnection = psycopg2.connect(user="applicant", password="Applicant!23",
-                                    host="th-data-test.ckvp0ck3llgr.ap-southeast-1.rds.amazonaws.com", port="5432",
-                                    database="th_data_test")
-    toconnection = psycopg2.connect(user="applicant", password="Applicant!23",
-                                    host="th-data-test.ccu6ybiolunl.ap-southeast-1.redshift.amazonaws.com", port="5439",
-                                    database="th_data_test")
-    query = 'select {0}  from subscription_data limit 10'.format(fields)
-    print query
-    sourcetable = fromdb(fromconnection, query)
-
-    print sourcetable
-
-    print 'inserting data'
-    appenddb(sourcetable, toconnection, 'dashboard_facttabledemo')
-
-    print 'insertion completed'
+from config import db_config, redshift_config
+from load import Load
 
 
-def newetl():
-    query = """
+QUERY = """
         with d as
         (
              --add an extra column named main date which is the 
              --converted date format of event time column
-             select *, TO_TIMESTAMP(event_time, 'dd/mm/yyyy HH24:MI:SS') main_date
+             select *, TO_TIMESTAMP(event_time, 'dd/mm/yyyy HH24:MI:SS')::timestamp without time zone main_date
              from subscription_data
              where membership_no is not null
-             
+
         ),
          c0 as 
          (
@@ -137,7 +50,7 @@ def newetl():
              where transaction_id is not null --current_product_code not in ('TonicBasic') --or previous_product_code = 'TonicBasic'
              group by membership_no
         ),
-        
+
         c3 as
         (
              --takes rows with membership_no and 
@@ -148,7 +61,7 @@ def newetl():
              where subscription_status = 'RENEW'
              group by membership_no
         ),
-        
+
         c4 as
         (
              --takes rows with membership_no and 
@@ -159,7 +72,7 @@ def newetl():
              where transaction_id is not null
              group by membership_no
         ),
-        
+
         c5 as
         (
              --takes rows with membership_no and 
@@ -173,21 +86,21 @@ def newetl():
                    from d
                    where subscription_channel is not null) b where rnk =1
         ),
-        
+
         c6 as
         (
              --takes rows with membership_no and 
              --average duration of membership of a member
              --here if a member unsubscribes then also he obtains a free basis membership
              --so average duration is  (last date-join date)/number_of_durations 
-               
+
              select membership_no, DATE_PART('day', "Last Free Subscription" - "First Join Date") / (kount * 1.0) "avg_membership_duration"
              from (
              select membership_no,min(main_date) "First Join Date", max(main_date) "Last Free Subscription", count(*) kount
              from d
              group by membership_no)b
         )
-        
+
         select *
         from (
         select c0.membership_no, 
@@ -207,6 +120,73 @@ def newetl():
                 left join c6 on c0.membership_no = c6.membership_no
         ) r """
 
+
+class Extract:
+    """
+    This is a custom ETL class
+    just call etl() method of this class and this
+    method performs etl from source databse to destination
+    database
+    """
+
+    subscriptions = None
+    source_db_connection = None
+    cursor = None
+
+    def connect(self):
+        """ Connect to the PostgreSQL database server """
+        try:
+            # read connection parameters
+            params = db_config()
+
+            # connect to the PostgreSQL server
+            print('Connecting to the PostgreSQL database...')
+            self.source_db_connection= psycopg2.connect(**params)
+
+            # create a cursor
+            self.cursor = self.source_db_connection.cursor()
+
+        except (Exception, psycopg2.DatabaseError) as error:
+            print(error)
+
+    def etl(self):
+        """
+        this is the main etl method
+        :return:
+        """
+        self.connect()
+        try:
+            print 'data extraction started...'
+            start_time = time.time()
+            self.cursor.execute(QUERY)
+            end_time = time.time()
+            print 'total for extracting data={} s'.format(end_time - start_time)
+            print 'data extraction completed'
+
+            self.subscriptions = self.cursor.fetchall()
+
+            # close the communication with the PostgreSQL
+            self.cursor.close()
+
+
+        except (Exception, psycopg2.DatabaseError) as error:
+            print(error)
+        finally:
+            if self.source_db_connection is not None:
+                self.source_db_connection.close()
+                print('Source database connection closed.')
+            self.load()
+
+    def load(self):
+        loader = Load()
+        loader.insert(self.subscriptions)
+
+
+def etl2():
+    """
+    this etl method performs etl based of petl library
+    :return:
+    """
     print 'connecting to fromconnection...'
     fromconnection = psycopg2.connect(user="applicant", password="Applicant!23",
                                       host="th-data-test.ckvp0ck3llgr.ap-southeast-1.rds.amazonaws.com", port="5432",
@@ -220,13 +200,20 @@ def newetl():
     print 'connected to toconnection'
 
     print 'fetching data from source.....'
-    sourcetable = fromdb(fromconnection, query)
+    sttime = time.time()
+    sourcetable = fromdb(fromconnection, QUERY)
+    endtime = time.time()
+    print 'total fetch time={0}'.format(endtime-sttime)
 
     print 'sourcetable is ready to insert'
     print 'inserting data to the destination table......'
-    appenddb(sourcetable, toconnection, 'dashboard_fact')
-
+    starttime = time.time()
+    try:
+        todb(sourcetable, toconnection, 'dashboard_fact')
+    except Exception as e:
+        print e
+    endtime = time.time()
+    print 'total time = {0}'.format(endtime-starttime)
     print 'insertion completed'
-    # return sourcetable
 
 

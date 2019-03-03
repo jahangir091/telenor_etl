@@ -2,6 +2,12 @@ from configparser import ConfigParser
 
 
 def db_config(filename='database.ini', section='postgresql'):
+    """
+    configuration for postgresql database
+    :param filename:
+    :param section:
+    :return:
+    """
     # create a parser
     parser = ConfigParser()
     # read config file
@@ -19,6 +25,12 @@ def db_config(filename='database.ini', section='postgresql'):
     return db
 
 def redshift_config(filename='database.ini', section='redshift'):
+    """
+    configuration for redshif database
+    :param filename:
+    :param section:
+    :return:
+    """
     # create a parser
     parser = ConfigParser()
     # read config file
