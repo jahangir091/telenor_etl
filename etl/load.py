@@ -1,4 +1,7 @@
 import psycopg2
+
+from psycopg2.extras import execute_values
+
 from config import redshift_config
 import datetime
 
@@ -40,18 +43,17 @@ class Load:
         count = 0
         try:
             print 'Loading data to the destination database...'
-            for fact in facts:
-                count = count+1
-                #execute insert query
-                self.cursor.execute('INSERT INTO  dashboard_fact (membership_no, first_free_join_date, '
-                                 'first_piad_subscription_date, last_piad_subscription_date, last_free_subscription_date, '
-                                 'number_of_renew_performed, number_of_paid_subscription, first_retailer_or_channel, '
-                                 'avg_membership_duration) VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s)',(fact))
 
-            #change to the database
+            execute_values(self.cursor, 'INSERT INTO  dashboard_fact2 (membership_no, first_free_join_date, '
+                                   'first_piad_subscription_date, last_piad_subscription_date, last_free_subscription_date, '
+                                   'number_of_renew_performed, number_of_paid_subscription, first_retailer_or_channel, '
+                                   'avg_membership_duration) VALUES %s', facts)
+        #change to the database
+            print 'commiting...'
             self.destination_db_connection.commit()
 
-            print (count, "Record inserted successfully into mobile table")
+            print (count, "Record inserted successfully into fact table")
+            facts = None
 
             if self.destination_db_connection:
                 self.cursor.close()

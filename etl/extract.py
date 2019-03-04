@@ -26,7 +26,7 @@ QUERY = """
              from subscription_data
              where membership_no is not null
              group by membership_no
-             limit 10
+             --limit 100000
         ) ,
         c1 as
         (   
@@ -163,7 +163,18 @@ class Extract:
             print 'total for extracting data={} s'.format(end_time - start_time)
             print 'data extraction completed'
 
-            self.subscriptions = self.cursor.fetchall()
+            # self.subscriptions = self.cursor.fetchall()
+            # print 'total data loaded={0}'.format(len(self.subscriptions))
+            count = 0
+            while True:
+                loader = Load()
+                records = None
+                records = self.cursor.fetchmany(size=10000)
+                if not records:
+                    break
+                print 'loading data {0} to {1}'.format(count, count+len(records))
+                count = count+len(records)
+                loader.insert(records)
 
             # close the communication with the PostgreSQL
             self.cursor.close()
@@ -175,11 +186,6 @@ class Extract:
             if self.source_db_connection is not None:
                 self.source_db_connection.close()
                 print('Source database connection closed.')
-            self.load()
-
-    def load(self):
-        loader = Load()
-        loader.insert(self.subscriptions)
 
 
 def etl2():
